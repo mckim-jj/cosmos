@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>도착 알림이</title>
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f0f8ff; }
+        h1 { color: #333; margin-bottom: 20px; }
+        #authorize_button { padding: 10px 20px; font-size: 16px; border-radius: 8px; background-color: #4285F4; color: white; border: none; cursor: pointer; }
+        #checkin_button { padding: 30px; font-size: 24px; font-weight: bold; border-radius: 50%; background-color: #4CAF50; color: white; border: none; width: 200px; height: 200px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: none; }
+        #checkin_button:active { background-color: #45a049; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transform: translateY(2px); }
+        #status_msg { margin-top: 20px; font-size: 18px; color: #555; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>안전 귀가 알림이</h1>
+    
+    <!-- 초기 로그인 버튼 (최초 1회 또는 토큰 만료시 필요) -->
+    <button id="authorize_button" onclick="handleAuthClick()">구글 로그인 (부모님 계정)</button>
+    
+    <!-- 아이가 누를 메인 버튼 -->
+    <button id="checkin_button" onclick="recordTime()">집에<br>왔어요!</button>
+    
+    <div id="status_msg"></div>
+
+    <script>
+        // ==========================================
+        // [필수 설정값 3가지 입력 영역]
+        // ==========================================
+        const CLIENT_ID = '919047449831-q3nspnjlt2995hh9u6uus3ovbcu5s2qm.apps.googleusercontent.com';
+        const API_KEY = 'AIzaSyCD8VUk3w2CpEyEQKoybECMCzZ_x6s3AO8';
+        const SPREADSHEET_ID = '1VU8u8zZo8ZADvWLx4cQnOXUNbmrsoAeHTg7y_nhtDdQ'; 
+        // ==========================================
+
+        const DISCOVERY_DOC = 'https://sheets.googleapis.com/$discovery/rest?version=v4';
+        const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+
+        let tokenClient;
+        let gapiInited = false;
+        let gisInited = false;
+
+        document.getElementById('authorize_button').style.display = 'none';
+
+        // GAPI 라이브러리 로드 완료 콜백
+        function gapiLoaded() {
+            gapi.load('client', initializeGapiClient);
+        }
+
+        async function initializeGapiClient() {
+            await gapi.client.init({
+                apiKey: API_KEY,
+                discoveryDocs: [DISCOVERY_DOC],
+            });
+            gapiInited = true;
+            maybeEnableButtons();
+        }
+
+        // Google Identity Services 로드 완료 콜백
+        function gisLoaded() {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: '', // 나중에 정의됨
+            });
+            gisInited = true;
+            maybeEnableButtons();
+        }
+
+        function maybeEnableButtons() {
+            if (gapiInited && gisInited) {
+                document.getElementById('authorize_button').style.display = 'block';
+            }
+        }
+
+        function handleAuthClick() {
+            tokenClient.callback = async (resp) => {
+                if (resp.error !== undefined) {
+                    throw (resp);
+                }
+                document.getElementById('authorize_button').style.display = 'none';
+                document.getElementById('checkin_button').style.display = 'block';
+                document.getElementById('status_msg').innerText = '준비 완료! 버튼을 눌러주세요.';
+            };
+
+            if (gapi.client.getToken() === null) {
+                tokenClient.requestAccessToken({prompt: 'consent'});
+            } else {
+                tokenClient.requestAccessToken({prompt: ''});
+            }
+        }
+
+        // 스프레드시트에 현재 시간 기록
+        async function recordTime() {
+            const btn = document.getElementById('checkin_button');
+            const status = document.getElementById('status_msg');
+            
+            btn.disabled = true;
+            status.innerText = '기록 중...';
+
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('ko-KR');
+            const timeStr = now.toLocaleTimeString('ko-KR');
+
+            try {
+                const response = await gapi.client.sheets.spreadsheets.values.append({
+                    spreadsheetId: SPREADSHEET_ID,
+                    range: 'Sheet1!A:B', // A열: 날짜, B열: 시간
+                    valueInputOption: 'USER_ENTERED',
+                    resource: {
+                        values: [
+                            [dateStr, timeStr, "도착 완료"]
+                        ]
+                    }
+                });
+                status.innerText = '✅ 도착 시간이 기록되었습니다!';
+                status.style.color = 'blue';
+            } catch (err) {
+                status.innerText = '❌ 오류가 발생했습니다. 다시 시도해주세요.';
+                status.style.color = 'red';
+                console.error(err);
+            } finally {
+                setTimeout(() => { 
+                    btn.disabled = false; 
+                    status.innerText = '';
+                }, 3000); // 3초 후 상태 메시지 초기화
+            }
+        }
+    </script>
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+</body>
+</html>
